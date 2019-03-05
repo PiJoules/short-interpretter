@@ -94,18 +94,6 @@ void FunctionValue::CheckArgs(const std::vector<Evaluatable> &args) const {
   }
 }
 
-Evaluatable Add::EvaluateImpl(const std::vector<Evaluatable> &args) const {
-  const auto &lhs = args[args.size() - 2];
-  const auto &rhs = args.back();
-  return Evaluatable::GetInt(lhs.getIntVal() + rhs.getIntVal());
-}
-
-Evaluatable Sub::EvaluateImpl(const std::vector<Evaluatable> &args) const {
-  const auto &lhs = args[args.size() - 2];
-  const auto &rhs = args.back();
-  return Evaluatable::GetInt(lhs.getIntVal() - rhs.getIntVal());
-}
-
 void ASTVisitor::Visit(const Node &node) {
   switch (node.getKind()) {
     case NODE_MODULE:
@@ -118,6 +106,8 @@ void ASTVisitor::Visit(const Node &node) {
       return VisitID(*node.getAs<ID>());
     case NODE_CALL:
       return VisitCall(*node.getAs<Call>());
+    case NODE_ASSIGN:
+      return VisitAssign(*node.getAs<Assign>());
   }
 }
 
@@ -130,6 +120,29 @@ void ByteCodeEmitter::VisitModule(const Module &module) {
 void ByteCodeEmitter::VisitInt(const Int &node) {
   PushBackInstr(INSTR_PUSH);
   PushBackValue(node.getVal());
+}
+
+uint64_t ByteCodeEmitter::getUniqueConstantID(const std::string &str) {
+  uint64_t str_id = constants_.size();
+  constants_.push_back(Evaluatable::GetStr(str));
+  return str_id;
+}
+
+uint64_t ByteCodeEmitter::getUniqueSymbolID(const std::string &name) const {
+  assert(uniqueSymbolExists(name) &&
+         "Attempting to get a symbol that does not yet exist");
+  return symbols_.at(name);
+}
+
+bool ByteCodeEmitter::uniqueSymbolExists(const std::string &name) const {
+  return symbols_.find(name) != symbols_.end();
+}
+
+void ByteCodeEmitter::makeUniqueSymbolID(const std::string &name) {
+  assert(!uniqueSymbolExists(name) &&
+         "Cannot remake a symbol that already exists.");
+  uint64_t new_id = symbols_.size();
+  symbols_[name] = new_id;
 }
 
 void ByteCodeEmitter::VisitStr(const Str &node) {
@@ -148,11 +161,29 @@ void ByteCodeEmitter::VisitID(const ID &node) {
   } else if (node.getName() == "sub") {
     instr = INSTR_SUB_OP;
   } else {
-    assert(0 && "Unknown symbol. Handle only builtin operations for now.");
+    // Load from the symbol table
+    uint64_t symbol = getUniqueSymbolID(node.getName());
+    PushBackInstr(INSTR_PUSH);
+    PushBackValue(symbol);
+    return;
   }
 
   // Call to custom function.
   PushBackInstr(instr);
+}
+
+void ByteCodeEmitter::VisitAssign(const Assign &node) {
+  // First declaration of this variable. May need to add it to the set of known
+  // symbols.
+  if (const auto *id_node = node.getDst().getAs<ID>()) {
+    const std::string &name = id_node->getName();
+    if (!uniqueSymbolExists(name)) makeUniqueSymbolID(name);
+  }
+  Visit(node.getDst());
+
+  Visit(node.getSrc());
+
+  PushBackInstr(INSTR_STORE);
 }
 
 void ByteCodeEmitter::VisitCall(const Call &node) {
@@ -199,6 +230,21 @@ void ByteCodeEvaluator::Interpret(const std::vector<ByteCode> &codes) {
       }
       case INSTR_CALL:
         assert(0 && "Calls not yet supported");
+        break;
+      case INSTR_STORE:
+        assert(eval_stack_.size() >= 2 &&
+               "Expected at least 2 values on the eval stack.");
+        int64_t val = eval_stack_.back();
+        eval_stack_.pop_back();
+
+        uint64_t dst_id = eval_stack_.back();
+        eval_stack_.pop_back();
+
+        assert(symbol_table_.find(dst_id) != symbol_table_.end() &&
+               "Found unknown symbol ID");
+        symbol_table_[dst_id] = val;
+
+        SafeSignedInc(i);
         break;
     }
   }

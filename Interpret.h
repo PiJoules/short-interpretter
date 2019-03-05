@@ -28,6 +28,10 @@ class ASTVisitor {
     Visit(node.getFunc());
     VisitNodeSequence(node.getArgs());
   }
+  virtual void VisitAssign(const Assign &node) {
+    Visit(node.getSrc());
+    Visit(node.getDst());
+  }
 };
 
 enum TypeKind {
@@ -156,6 +160,10 @@ class Evaluatable {
   static Evaluatable &&GetFunc(unique<Type> type, unique<FunctionValue> func);
 
   Evaluatable(const Evaluatable &other);
+  Evaluatable operator=(const Evaluatable &other) const {
+    Evaluatable new_eval(other);
+    return new_eval;
+  }
   ~Evaluatable();
 
   const Type &getType() const { return *type_; }
@@ -276,6 +284,7 @@ enum Instruction : int64_t {
   INSTR_SUB_OP,
 
   INSTR_CALL,
+  INSTR_STORE,
 };
 
 union ByteCode {
@@ -303,13 +312,27 @@ class ByteCodeEmitter : public ASTVisitor {
   void ConvertToByteCode(const Node &node);
   const std::vector<ByteCode> &getByteCode() const { return byte_code_; }
   const std::vector<Evaluatable> &getConstants() const { return constants_; }
+  const std::unordered_map<std::string, uint64_t> &getSymbols() const {
+    return symbols_;
+  }
+
+  uint64_t getSymbolID(const std::string &symbol) const {
+    return symbols_.at(symbol);
+  }
+
+  void ResetComponents() {
+    byte_code_.clear();
+    symbols_.clear();
+    constants_.clear();
+  }
 
  private:
   void VisitModule(const Module &module) override;
   void VisitInt(const Int &) override;
   void VisitStr(const Str &) override;
   void VisitID(const ID &) override;
-  void VisitCall(const Call &node) override;
+  void VisitCall(const Call &) override;
+  void VisitAssign(const Assign &) override;
 
   void PushBackInstr(Instruction instr) {
     byte_code_.push_back(ByteCode::GetInstr(instr));
@@ -319,14 +342,42 @@ class ByteCodeEmitter : public ASTVisitor {
     byte_code_.push_back(ByteCode::GetValue(val));
   }
 
+  uint64_t getUniqueConstantID(const std::string &str);
+
+  uint64_t getUniqueSymbolID(const std::string &name) const;
+  void makeUniqueSymbolID(const std::string &name);
+  bool uniqueSymbolExists(const std::string &name) const;
+
+  std::unordered_map<std::string, uint64_t> symbols_;
   std::vector<ByteCode> byte_code_;
   std::vector<Evaluatable> constants_;
 };
 
 class ByteCodeEvaluator {
  public:
-  ByteCodeEvaluator(const std::vector<Evaluatable> &constants)
-      : constants_(constants) {}
+  ByteCodeEvaluator(const std::vector<Evaluatable> &constants,
+                    const std::unordered_map<std::string, uint64_t> &symbols)
+      : constants_(constants) {
+    InitializeSymbolTable(symbols);
+  }
+  ByteCodeEvaluator() {}
+
+  void InitializeConstants(const std::vector<Evaluatable> &constants) {
+    constants_ = constants;
+  }
+
+  void InitializeSymbolTable(
+      const std::unordered_map<std::string, uint64_t> &symbols) {
+    for (auto it = symbols.begin(); it != symbols.end(); ++it) {
+      symbol_table_[it->second] = 0;
+    }
+  }
+
+  void ResetComponents() {
+    eval_stack_.clear();
+    constants_.clear();
+    symbol_table_.clear();
+  }
 
   void Interpret(const std::vector<ByteCode> &codes);
 
@@ -335,6 +386,7 @@ class ByteCodeEvaluator {
  private:
   std::vector<int64_t> eval_stack_;
   std::vector<Evaluatable> constants_;
+  std::unordered_map<uint64_t, int64_t> symbol_table_;
 };
 
 }  // namespace lang

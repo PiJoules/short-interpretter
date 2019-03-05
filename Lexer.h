@@ -36,6 +36,8 @@ enum TokenKind {
   TOK_INT,
   TOK_STR,
   TOK_ID,
+
+  TOK_DEF,
 };
 
 /**

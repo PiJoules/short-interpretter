@@ -10,6 +10,7 @@ NodeKind Module::Kind = NODE_MODULE;
 NodeKind Int::Kind = NODE_INT;
 NodeKind Str::Kind = NODE_STR;
 NodeKind ID::Kind = NODE_ID;
+NodeKind Assign::Kind = NODE_ASSIGN;
 NodeKind Call::Kind = NODE_CALL;
 
 namespace {
@@ -84,6 +85,30 @@ ParseStatus ReadID(const std::vector<Token> &input, int64_t &current,
   return ParseStatus::GetSuccess();
 }
 
+ParseStatus ReadDefine(const std::vector<Token> &input, int64_t &current,
+                       Node **result) {
+  SourceLocation start_loc = input[current].loc;
+
+  // Consume the 'def'
+  SafeSignedInc(current);
+
+  // Store destination
+  Node *dst;
+  ParseStatus status = ReadNode(input, current, &dst);
+  if (!status) return status;
+  unique<Node> dst_node(dst);
+
+  // Load value
+  Node *src;
+  status = ReadNode(input, current, &src);
+  if (!status) return status;
+  unique<Node> src_node(src);
+
+  *result =
+      SafeNew<Assign>(start_loc, std::move(dst_node), std::move(src_node));
+  return ParseStatus::GetSuccess();
+}
+
 ParseStatus ReadNode(const std::vector<Token> &input, int64_t &current,
                      Node **result) {
   while (current < input.size()) {
@@ -99,6 +124,8 @@ ParseStatus ReadNode(const std::vector<Token> &input, int64_t &current,
         return ReadID(input, current, result);
       case TOK_RPAR:
         return ParseStatus::GetFailure(PARSE_FAIL_NO_LPAR, tok);
+      case TOK_DEF:
+        return ReadDefine(input, current, result);
       case TOK_NONE:
         assert(0 &&
                "Ran into a TOK_NONE. Logically, this should not be handled "

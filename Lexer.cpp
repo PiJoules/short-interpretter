@@ -98,7 +98,13 @@ LexStatus ReadTokens(const std::string &input, std::vector<Token> &result) {
         c = input[current];
       }
 
-      Token tok(TOK_ID, loc, str);
+      TokenKind kind;
+      if (str == "def")
+        kind = TOK_DEF;
+      else
+        kind = TOK_ID;
+
+      Token tok(kind, loc, str);
       result.push_back(tok);
       SafeSignedInplaceAdd(col, str.size());
       continue;

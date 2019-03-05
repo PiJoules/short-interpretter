@@ -11,6 +11,8 @@ namespace lang {
 enum NodeKind {
   NODE_MODULE,
 
+  NODE_ASSIGN,
+
   // Expressions
   NODE_INT,
   NODE_STR,
@@ -95,7 +97,7 @@ class Int : public Node {
   static NodeKind Kind;
 
   Int(SourceLocation loc, int32_t val) : Node(Kind, loc), val_(val) {}
-  Int(int32_t val) : Node(Kind), val_(val) {}
+  Int(int32_t val) : Int(SourceLocation(), val) {}
 
   int32_t getVal() const { return val_; }
 
@@ -137,7 +139,7 @@ class ID : public Node {
 
   ID(SourceLocation loc, const std::string &name)
       : Node(Kind, loc), name_(name) {}
-  ID(const std::string &name) : Node(Kind), name_(name) {}
+  ID(const std::string &name) : ID(SourceLocation(), name) {}
 
   const std::string &getName() const { return name_; }
 
@@ -150,6 +152,34 @@ class ID : public Node {
 
  private:
   std::string name_;
+};
+
+class Assign : public Node {
+ public:
+  static NodeKind Kind;
+
+  Assign(SourceLocation loc, unique<Node> dst, unique<Node> src)
+      : Node(Kind, loc), dst_(std::move(dst)), src_(std::move(src)) {
+    CheckNonNull(src_.get());
+    CheckNonNull(dst_.get());
+  }
+  Assign(unique<Node> dst, unique<Node> src)
+      : Assign(SourceLocation(), std::move(dst), std::move(src)) {}
+
+  const Node &getDst() const { return *dst_; }
+  const Node &getSrc() const { return *src_; }
+
+  bool equals(const Node &other) const override {
+    const Assign *other_assign = other.getAs<Assign>();
+    if (!other_assign) return false;
+
+    return (getDst() == other_assign->getDst() &&
+            getSrc() == other_assign->getSrc());
+  }
+
+ private:
+  unique<Node> dst_;
+  unique<Node> src_;
 };
 
 class Call : public Node {

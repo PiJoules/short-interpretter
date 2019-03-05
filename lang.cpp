@@ -9,9 +9,79 @@ using lang::ParseStatus;
 using lang::Token;
 using lang::unique;
 
+namespace {
+
+class Compiler {
+ public:
+  ~Compiler() {
+    if (module_ptr_) delete module_ptr_;
+  }
+
+  const std::vector<Token> &getTokens() const { return tokens_; }
+
+  const lang::Module &getModule() const { return *module_ptr_; }
+
+  const lang::ByteCodeEmitter &getEmitter() const { return emitter_; }
+
+  const lang::ByteCodeEvaluator &getEvaluator() const { return eval_; }
+
+  LexStatus Lex(const std::string &input) { return ReadTokens(input, tokens_); }
+
+  ParseStatus Parse() { return lang::ReadModule(tokens_, &module_ptr_); }
+
+  void GenerateByteCode() { emitter_.ConvertToByteCode(*module_ptr_); }
+
+  void EvaluateByteCode() {
+    eval_.InitializeConstants(emitter_.getConstants());
+    eval_.InitializeSymbolTable(emitter_.getSymbols());
+    eval_.Interpret(emitter_.getByteCode());
+  }
+
+  void Run(const std::string &input) {
+    assert(Lex(input).isSuccessful());
+    assert(Parse().isSuccessful());
+    GenerateByteCode();
+    EvaluateByteCode();
+  }
+
+  void ResetComponents() {
+    tokens_.clear();
+    delete module_ptr_;
+    module_ptr_ = nullptr;
+    emitter_.ResetComponents();
+    eval_.ResetComponents();
+  }
+
+  int64_t getOnlyEvalResult() const {
+    assert(eval_.getEvalStack().size() == 1);
+    return eval_.getEvalStack().back();
+  }
+
+  int64_t Compile(const std::string &input) {
+    ResetComponents();
+    Run(input);
+    return getOnlyEvalResult();
+  }
+
+ private:
+  std::vector<Token> tokens_;
+  lang::Module *module_ptr_ = nullptr;
+  lang::ByteCodeEmitter emitter_;
+  lang::ByteCodeEvaluator eval_;
+};
+
+template <typename T>
+void CompareVectors(const std::vector<T> &expected,
+                    const std::vector<T> &found) {
+  assert(found.size() == expected.size());
+  for (unsigned i = 0; i < found.size(); ++i) assert(found[i] == expected[i]);
+}
+
+}  // namespace
+
 void ShortTest() {
   // Lexing
-  const Token expected_tokens[] = {
+  const std::vector<Token> expected_tokens = {
       Token(lang::TOK_LPAR, "("), Token(lang::TOK_ID, "add"),
       Token(lang::TOK_INT, "2"),  Token(lang::TOK_LPAR, "("),
       Token(lang::TOK_ID, "sub"), Token(lang::TOK_INT, "4"),
@@ -23,10 +93,7 @@ void ShortTest() {
   std::vector<Token> tokens;
   LexStatus lex_status = ReadTokens(input, tokens);
   assert(lex_status.isSuccessful());
-  assert(tokens.size() == sizeof(expected_tokens) / sizeof(Token));
-
-  for (unsigned i = 0; i < tokens.size(); ++i)
-    assert(tokens[i] == expected_tokens[i]);
+  CompareVectors(expected_tokens, tokens);
 
   // Parsing
   std::vector<unique<Node>> sub_args;
@@ -78,39 +145,65 @@ void ShortTest() {
   assert(emitter.getConstants().empty());
 
   // Byte code evaluation
-  lang::ByteCodeEvaluator eval(emitter.getConstants());
+  lang::ByteCodeEvaluator eval(emitter.getConstants(), emitter.getSymbols());
   eval.Interpret(emitter.getByteCode());
 
   assert(eval.getEvalStack().size() == 1);
   assert(eval.getEvalStack().back() == 4);
 }
 
-void Compile(const std::string &input) {
-  std::vector<Token> tokens;
-  LexStatus lex_status = ReadTokens(input, tokens);
+void ShortTestAssign() {
+  const std::string &input = "def x 2";
+
+  // Lexing
+  Compiler compiler;
+  LexStatus lex_status = compiler.Lex(input);
   assert(lex_status.isSuccessful());
 
-  lang::Module *module_ptr;
-  ParseStatus parse_status = lang::ReadModule(tokens, &module_ptr);
+  const std::vector<Token> expected = {
+      Token(lang::TOK_DEF, "def"),
+      Token(lang::TOK_ID, "x"),
+      Token(lang::TOK_INT, "2"),
+  };
+  CompareVectors(expected, compiler.getTokens());
+
+  // Parsing
+  auto dst = std::make_unique<lang::ID>("x");
+  auto src = std::make_unique<lang::Int>(2);
+  auto assign = std::make_unique<lang::Assign>(std::move(dst), std::move(src));
+
+  std::vector<unique<Node>> nodes;
+  nodes.push_back(std::move(assign));
+  auto expected_module = std::make_unique<lang::Module>(std::move(nodes));
+
+  ParseStatus parse_status = compiler.Parse();
   assert(parse_status.isSuccessful());
+  assert(compiler.getModule() == *expected_module);
 
-  unique<lang::Module> module(module_ptr);
-  lang::ByteCodeEmitter emitter;
-  emitter.ConvertToByteCode(*module);
+  // Byte code emission
+  compiler.GenerateByteCode();
+  assert(compiler.getEmitter().getSymbols().size() == 1);
+  uint64_t symbol = compiler.getEmitter().getSymbolID("x");
 
-  lang::ByteCodeEvaluator eval(emitter.getConstants());
-  eval.Interpret(emitter.getByteCode());
-  assert(eval.getEvalStack().size() == 1);
+  const std::vector<lang::ByteCode> expected_bytecode = {
+      ByteCode::GetInstr(lang::INSTR_PUSH),  ByteCode::GetValue(symbol),
+      ByteCode::GetInstr(lang::INSTR_PUSH),  ByteCode::GetValue(2),
+      ByteCode::GetInstr(lang::INSTR_STORE),
+  };
+  CompareVectors(expected_bytecode, compiler.getEmitter().getByteCode());
 
-  std::cout << eval.getEvalStack().back() << std::endl;
+  // Byte code evaluation
+  compiler.EvaluateByteCode();
+  assert(compiler.getEvaluator().getEvalStack().empty());
 }
 
 int main(int argc, char **argv) {
   ShortTest();
+  ShortTestAssign();
   if (argc < 2) return 0;
 
   std::string input(argv[1]);
-  Compile(input);
+  std::cout << Compiler().Compile(input) << std::endl;
 
   return 0;
 }
