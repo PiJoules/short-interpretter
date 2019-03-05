@@ -32,6 +32,10 @@ class ASTVisitor {
     Visit(node.getSrc());
     Visit(node.getDst());
   }
+  virtual void VisitBinOp(const BinOp &node) {
+    Visit(node.getLHS());
+    Visit(node.getRHS());
+  }
 };
 
 enum TypeKind {
@@ -333,6 +337,7 @@ class ByteCodeEmitter : public ASTVisitor {
   void VisitID(const ID &) override;
   void VisitCall(const Call &) override;
   void VisitAssign(const Assign &) override;
+  void VisitBinOp(const BinOp &) override;
 
   void PushBackInstr(Instruction instr) {
     byte_code_.push_back(ByteCode::GetInstr(instr));

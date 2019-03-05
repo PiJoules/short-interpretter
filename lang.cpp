@@ -96,17 +96,11 @@ void ShortTest() {
   CompareVectors(expected_tokens, tokens);
 
   // Parsing
-  std::vector<unique<Node>> sub_args;
-  sub_args.push_back(std::make_unique<lang::Int>(4));
-  sub_args.push_back(std::make_unique<lang::Int>(2));
-  auto sub_call = std::make_unique<lang::Call>(
-      std::make_unique<lang::ID>("sub"), std::move(sub_args));
-
-  std::vector<unique<Node>> add_args;
-  add_args.push_back(std::make_unique<lang::Int>(2));
-  add_args.push_back(std::move(sub_call));
-  auto add_call = std::make_unique<lang::Call>(
-      std::make_unique<lang::ID>("add"), std::move(add_args));
+  auto sub_call = std::make_unique<lang::BinOp>(lang::BINOP_SUB,
+                                                std::make_unique<lang::Int>(4),
+                                                std::make_unique<lang::Int>(2));
+  auto add_call = std::make_unique<lang::BinOp>(
+      lang::BINOP_ADD, std::make_unique<lang::Int>(2), std::move(sub_call));
 
   std::vector<unique<Node>> nodes;
   nodes.push_back(std::move(add_call));

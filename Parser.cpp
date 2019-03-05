@@ -11,12 +11,40 @@ NodeKind Int::Kind = NODE_INT;
 NodeKind Str::Kind = NODE_STR;
 NodeKind ID::Kind = NODE_ID;
 NodeKind Assign::Kind = NODE_ASSIGN;
+NodeKind BinOp::Kind = NODE_BINOP;
 NodeKind Call::Kind = NODE_CALL;
 
 namespace {
 
 ParseStatus ReadNode(const std::vector<Token> &input, int64_t &current,
                      Node **result);
+
+ParseStatus ReadBinOpOperands(const std::vector<Token> &input, int64_t &current,
+                              Node **result, BinOpKind kind) {
+  SourceLocation start_loc = input[current].loc;
+
+  Node *lhs, *rhs;
+  ParseStatus status = ReadNode(input, current, &lhs);
+  if (!status) return status;
+  unique<Node> lhs_node(lhs);
+
+  status = ReadNode(input, current, &rhs);
+  if (!status) return status;
+  unique<Node> rhs_node(rhs);
+
+  // We reached the end of the input without finding an appropriate RPAR.
+  const Token &tok = input[current];
+  if (tok.kind != TOK_RPAR)
+    return ParseStatus::GetFailure(PARSE_FAIL_TOO_MANY_BINOP_OPERANDS,
+                                   input.back());
+
+  // Consume the RPAR
+  SafeSignedInc(current);
+
+  *result =
+      SafeNew<BinOp>(start_loc, kind, std::move(lhs_node), std::move(rhs_node));
+  return ParseStatus::GetSuccess();
+}
 
 ParseStatus ReadCall(const std::vector<Token> &input, int64_t &current,
                      Node **result) {
@@ -28,6 +56,16 @@ ParseStatus ReadCall(const std::vector<Token> &input, int64_t &current,
   Node *func;
   ParseStatus status = ReadNode(input, current, &func);
   if (!status) return status;
+
+  // Handle builtins here for now.
+  // TODO: This should be replaced with it's own ADD/SUB token.
+  if (const auto *id_func = func->getAs<ID>()) {
+    if (id_func->getName() == "add") {
+      return ReadBinOpOperands(input, current, result, BINOP_ADD);
+    } else if (id_func->getName() == "sub") {
+      return ReadBinOpOperands(input, current, result, BINOP_SUB);
+    }
+  }
 
   bool found_rpar = false;
   std::vector<unique<Node>> args;

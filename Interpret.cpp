@@ -106,6 +106,8 @@ void ASTVisitor::Visit(const Node &node) {
       return VisitID(*node.getAs<ID>());
     case NODE_CALL:
       return VisitCall(*node.getAs<Call>());
+    case NODE_BINOP:
+      return VisitBinOp(*node.getAs<BinOp>());
     case NODE_ASSIGN:
       return VisitAssign(*node.getAs<Assign>());
   }
@@ -153,23 +155,26 @@ void ByteCodeEmitter::VisitStr(const Str &node) {
   PushBackValue(str_id);
 }
 
-void ByteCodeEmitter::VisitID(const ID &node) {
-  // Check builtin operations.
-  Instruction instr;
-  if (node.getName() == "add") {
-    instr = INSTR_ADD_OP;
-  } else if (node.getName() == "sub") {
-    instr = INSTR_SUB_OP;
-  } else {
-    // Load from the symbol table
-    uint64_t symbol = getUniqueSymbolID(node.getName());
-    PushBackInstr(INSTR_PUSH);
-    PushBackValue(symbol);
-    return;
-  }
+void ByteCodeEmitter::VisitBinOp(const BinOp &node) {
+  Visit(node.getLHS());
+  Visit(node.getRHS());
 
-  // Call to custom function.
-  PushBackInstr(instr);
+  Instruction instr;
+  switch (node.getKind()) {
+    case BINOP_ADD:
+      instr = INSTR_ADD_OP;
+      break;
+    case BINOP_SUB:
+      instr = INSTR_SUB_OP;
+      break;
+  }
+  return PushBackInstr(instr);
+}
+
+void ByteCodeEmitter::VisitID(const ID &node) {
+  uint64_t symbol = getUniqueSymbolID(node.getName());
+  PushBackInstr(INSTR_PUSH);
+  PushBackValue(symbol);
 }
 
 void ByteCodeEmitter::VisitAssign(const Assign &node) {
@@ -180,9 +185,7 @@ void ByteCodeEmitter::VisitAssign(const Assign &node) {
     if (!uniqueSymbolExists(name)) makeUniqueSymbolID(name);
   }
   Visit(node.getDst());
-
   Visit(node.getSrc());
-
   PushBackInstr(INSTR_STORE);
 }
 

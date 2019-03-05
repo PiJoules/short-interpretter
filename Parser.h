@@ -18,6 +18,7 @@ enum NodeKind {
   NODE_STR,
   NODE_ID,
   NODE_CALL,
+  NODE_BINOP,
 };
 
 class Node {
@@ -182,6 +183,44 @@ class Assign : public Node {
   unique<Node> src_;
 };
 
+enum BinOpKind {
+  BINOP_ADD,
+  BINOP_SUB,
+};
+
+class BinOp : public Node {
+ public:
+  static NodeKind Kind;
+
+  BinOp(SourceLocation loc, BinOpKind kind, unique<Node> lhs, unique<Node> rhs)
+      : Node(Kind, loc),
+        kind_(kind),
+        lhs_(std::move(lhs)),
+        rhs_(std::move(rhs)) {
+    CheckNonNull(lhs_.get());
+    CheckNonNull(rhs_.get());
+  }
+  BinOp(BinOpKind kind, unique<Node> lhs, unique<Node> rhs)
+      : BinOp(SourceLocation(), kind, std::move(lhs), std::move(rhs)) {}
+
+  const Node &getLHS() const { return *lhs_; }
+  const Node &getRHS() const { return *rhs_; }
+  BinOpKind getKind() const { return kind_; }
+
+  bool equals(const Node &other) const override {
+    const auto *binop = other.getAs<BinOp>();
+    if (!binop) return false;
+
+    return (kind_ == binop->getKind() && getLHS() == binop->getLHS() &&
+            getRHS() == binop->getRHS());
+  }
+
+ private:
+  BinOpKind kind_;
+  unique<Node> lhs_;
+  unique<Node> rhs_;
+};
+
 class Call : public Node {
  public:
   static NodeKind Kind;
@@ -192,10 +231,7 @@ class Call : public Node {
     CheckNonNullVector(args_);
   }
   Call(unique<Node> func, std::vector<unique<Node>> args)
-      : Node(Kind), func_(std::move(func)), args_(std::move(args)) {
-    CheckNonNull(func_.get());
-    CheckNonNullVector(args_);
-  }
+      : Call(SourceLocation(), std::move(func), std::move(args)) {}
 
   const Node &getFunc() const { return *func_; }
   const std::vector<unique<Node>> &getArgs() const { return args_; }
@@ -232,6 +268,9 @@ enum ParseStatusKind {
 
   // We read an LPAR that did not have a corresponding RPAR.
   PARSE_FAIL_NO_RPAR,
+
+  // Invalid number of binary operation operands.
+  PARSE_FAIL_TOO_MANY_BINOP_OPERANDS,
 };
 
 class ParseStatus {
