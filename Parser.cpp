@@ -7,6 +7,7 @@
 namespace lang {
 
 NodeKind Module::Kind = NODE_MODULE;
+NodeKind Stmt::Kind = NODE_STMT;
 NodeKind Int::Kind = NODE_INT;
 NodeKind Str::Kind = NODE_STR;
 NodeKind ID::Kind = NODE_ID;
@@ -35,8 +36,7 @@ ParseStatus ReadBinOpOperands(const std::vector<Token> &input, int64_t &current,
   // We reached the end of the input without finding an appropriate RPAR.
   const Token &tok = input[current];
   if (tok.kind != TOK_RPAR)
-    return ParseStatus::GetFailure(PARSE_FAIL_TOO_MANY_BINOP_OPERANDS,
-                                   input.back());
+    return ParseStatus::GetFailure(PARSE_FAIL_TOO_MANY_BINOP_OPERANDS, tok);
 
   // Consume the RPAR
   SafeSignedInc(current);
@@ -56,6 +56,7 @@ ParseStatus ReadCall(const std::vector<Token> &input, int64_t &current,
   Node *func;
   ParseStatus status = ReadNode(input, current, &func);
   if (!status) return status;
+  unique<Node> unique_func(func);
 
   // Handle builtins here for now.
   // TODO: This should be replaced with it's own ADD/SUB token.
@@ -91,7 +92,6 @@ ParseStatus ReadCall(const std::vector<Token> &input, int64_t &current,
   // Consume the RPAR
   SafeSignedInc(current);
 
-  unique<Node> unique_func(func);
   *result = SafeNew<Call>(start_loc, std::move(unique_func), std::move(args));
   return ParseStatus::GetSuccess();
 }
@@ -165,14 +165,42 @@ ParseStatus ReadNode(const std::vector<Token> &input, int64_t &current,
       case TOK_DEF:
         return ReadDefine(input, current, result);
       case TOK_NONE:
-        assert(0 &&
-               "Ran into a TOK_NONE. Logically, this should not be handled "
-               "here. This means an invalid token was created somewhere.");
+        lang_unreachable(
+            "Ran into a TOK_NONE. Logically, this should not be handled "
+            "here. This means an invalid token was created somewhere.");
+        break;
+      case TOK_SEMICOL:
+        lang_unreachable(
+            "Ran into a TOK_SEMICOL. This implies we have not finished parsing "
+            "a statement, which should be handled by ReadStmt().");
         break;
     }
   }
 
   return ParseStatus::GetFailure(PARSE_FAIL, input.back());
+}
+
+ParseStatus ReadStmt(const std::vector<Token> &input, int64_t &current,
+                     Node **result) {
+  SourceLocation start_loc = input[current].loc;
+
+  Node *inner;
+  ParseStatus status = ReadNode(input, current, &inner);
+  if (!status) return status;
+  unique<Node> inner_node(inner);
+
+  // Consume remaining ';'
+  if (current >= input.size())
+    return ParseStatus::GetFailure(PARSE_FAIL_MISSING_SEMICOL, input.back());
+
+  const Token &tok = input[current];
+  if (tok.kind != TOK_SEMICOL)
+    return ParseStatus::GetFailure(PARSE_FAIL_MISSING_SEMICOL, tok);
+
+  SafeSignedInc(current);
+
+  *result = SafeNew<Stmt>(start_loc, std::move(inner_node));
+  return ParseStatus::GetSuccess();
 }
 
 }  // namespace
@@ -197,7 +225,7 @@ ParseStatus ReadModule(const std::vector<Token> &input, Module **module) {
   std::vector<unique<Node>> nodes;
   while (current < input.size()) {
     Node *result;
-    ParseStatus status = ReadNode(input, current, &result);
+    ParseStatus status = ReadStmt(input, current, &result);
     if (!status) return status;
 
     unique<Node> node(result);

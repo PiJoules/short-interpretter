@@ -10,6 +10,8 @@
 
 namespace lang {
 
+#define lang_unreachable(MSG) assert(0 && MSG);
+
 template <typename T>
 void SafeSignedInc(T &x) {
   static_assert(

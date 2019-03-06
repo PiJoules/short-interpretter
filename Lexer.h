@@ -32,6 +32,8 @@ enum TokenKind {
   TOK_LPAR,
   TOK_RPAR,
 
+  TOK_SEMICOL,
+
   // Atoms
   TOK_INT,
   TOK_STR,

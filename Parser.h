@@ -10,6 +10,7 @@ namespace lang {
 
 enum NodeKind {
   NODE_MODULE,
+  NODE_STMT,
 
   NODE_ASSIGN,
 
@@ -70,9 +71,7 @@ class Module : public Node {
     CheckNonNullVector(nodes_);
   }
   Module(std::vector<unique<Node>> nodes)
-      : Node(Kind), nodes_(std::move(nodes)) {
-    CheckNonNullVector(nodes_);
-  }
+      : Module(SourceLocation(), std::move(nodes)) {}
 
   const std::vector<unique<Node>> &getNodes() const { return nodes_; }
 
@@ -91,6 +90,28 @@ class Module : public Node {
 
  private:
   std::vector<unique<Node>> nodes_;
+};
+
+class Stmt : public Node {
+ public:
+  static NodeKind Kind;
+
+  Stmt(SourceLocation loc, unique<Node> node)
+      : Node(Kind, loc), node_(std::move(node)) {
+    CheckNonNull(node_.get());
+  }
+  Stmt(unique<Node> node) : Stmt(SourceLocation(), std::move(node)) {}
+
+  const Node &getNode() const { return *node_; }
+
+  bool equals(const Node &other) const override {
+    const auto *stmt = other.getAs<Stmt>();
+    if (!stmt) return false;
+    return getNode() == stmt->getNode();
+  }
+
+ private:
+  unique<Node> node_;
 };
 
 class Int : public Node {
@@ -271,6 +292,9 @@ enum ParseStatusKind {
 
   // Invalid number of binary operation operands.
   PARSE_FAIL_TOO_MANY_BINOP_OPERANDS,
+
+  // Missing semicolon at the end of a statement.
+  PARSE_FAIL_MISSING_SEMICOL,
 };
 
 class ParseStatus {

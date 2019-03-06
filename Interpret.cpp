@@ -110,6 +110,8 @@ void ASTVisitor::Visit(const Node &node) {
       return VisitBinOp(*node.getAs<BinOp>());
     case NODE_ASSIGN:
       return VisitAssign(*node.getAs<Assign>());
+    case NODE_STMT:
+      return VisitStmt(*node.getAs<Stmt>());
   }
 }
 
@@ -172,8 +174,9 @@ void ByteCodeEmitter::VisitBinOp(const BinOp &node) {
 }
 
 void ByteCodeEmitter::VisitID(const ID &node) {
+  // Load the value at the symbol and push that onto the stack.
   uint64_t symbol = getUniqueSymbolID(node.getName());
-  PushBackInstr(INSTR_PUSH);
+  PushBackInstr(INSTR_LOAD);
   PushBackValue(symbol);
 }
 
@@ -183,8 +186,14 @@ void ByteCodeEmitter::VisitAssign(const Assign &node) {
   if (const auto *id_node = node.getDst().getAs<ID>()) {
     const std::string &name = id_node->getName();
     if (!uniqueSymbolExists(name)) makeUniqueSymbolID(name);
+
+    uint64_t symbol = getUniqueSymbolID(name);
+    PushBackInstr(INSTR_PUSH);
+    PushBackValue(symbol);
+  } else {
+    lang_unreachable("Found a node we cannot assign to.");
   }
-  Visit(node.getDst());
+
   Visit(node.getSrc());
   PushBackInstr(INSTR_STORE);
 }
@@ -234,7 +243,7 @@ void ByteCodeEvaluator::Interpret(const std::vector<ByteCode> &codes) {
       case INSTR_CALL:
         assert(0 && "Calls not yet supported");
         break;
-      case INSTR_STORE:
+      case INSTR_STORE: {
         assert(eval_stack_.size() >= 2 &&
                "Expected at least 2 values on the eval stack.");
         int64_t val = eval_stack_.back();
@@ -249,7 +258,26 @@ void ByteCodeEvaluator::Interpret(const std::vector<ByteCode> &codes) {
 
         SafeSignedInc(i);
         break;
+      }
+      case INSTR_LOAD: {
+        assert(i <= codes.size() - 1 && "Expected at least one more code");
+        uint64_t load_id = codes[i + 1].value;
+
+        assert(symbol_table_.find(load_id) != symbol_table_.end() &&
+               "Found unknown symbol ID");
+        eval_stack_.push_back(symbol_table_.at(load_id));
+
+        SafeSignedInplaceAdd(i, 2);
+        break;
+      }
     }
+  }
+}
+
+void ByteCodeEmitter::DumpByteCode(std::ostream &out) const {
+  for (const auto &code : byte_code_) {
+    code.Dump(out);
+    out << ", ";
   }
 }
 

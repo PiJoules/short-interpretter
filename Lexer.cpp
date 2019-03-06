@@ -48,6 +48,12 @@ LexStatus ReadTokens(const std::string &input, std::vector<Token> &result) {
       SafeSignedInc(current);
       SafeSignedInc(col);
       continue;
+    } else if (c == ';') {
+      Token tok(TOK_SEMICOL, loc, ";");
+      result.push_back(tok);
+      SafeSignedInc(current);
+      SafeSignedInc(col);
+      continue;
     } else if (c == '"') {
       std::string str;
 

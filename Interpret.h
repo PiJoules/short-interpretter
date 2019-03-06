@@ -36,6 +36,7 @@ class ASTVisitor {
     Visit(node.getLHS());
     Visit(node.getRHS());
   }
+  virtual void VisitStmt(const Stmt &node) { Visit(node.getNode()); }
 };
 
 enum TypeKind {
@@ -276,11 +277,12 @@ class FunctionValue {
 };
 
 /**
- * Bytecode instructions
+ * Bytecode instructions. We have it the same size as the value so when
+ * assigning to a ByteCode.instr, we write over the whole width of the ByteCode.
  */
 enum Instruction : int64_t {
   // Add a value onto the evaluation stack.
-  INSTR_PUSH,
+  INSTR_PUSH = 0,
 
   // Perform an binary operation on the top 2 elements of the evaluation stack
   // and add push the result to the top of the stack.
@@ -289,6 +291,7 @@ enum Instruction : int64_t {
 
   INSTR_CALL,
   INSTR_STORE,
+  INSTR_LOAD,
 };
 
 union ByteCode {
@@ -309,6 +312,10 @@ union ByteCode {
 
   bool operator==(const ByteCode &other) const { return value == other.value; }
   bool operator!=(const ByteCode &other) const { return value != other.value; }
+
+  std::string getAsString() const { return std::to_string(value); }
+
+  void Dump(std::ostream &out) const { out << value; }
 };
 
 class ByteCodeEmitter : public ASTVisitor {
@@ -329,6 +336,8 @@ class ByteCodeEmitter : public ASTVisitor {
     symbols_.clear();
     constants_.clear();
   }
+
+  void DumpByteCode(std::ostream &) const;
 
  private:
   void VisitModule(const Module &module) override;
